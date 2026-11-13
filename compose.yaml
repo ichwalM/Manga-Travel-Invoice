@@ -1,0 +1,17 @@
+services:
+  web:
+    build: .
+    container_name: manga-travel-invoice
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      SESSION_SECRET: ${SESSION_SECRET:-manga-travel-docker-session-secret-change-me-2026}
+    volumes:
+      - manga-travel-data:/app/.data
+
+volumes:
+  manga-travel-data:
