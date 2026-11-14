@@ -190,7 +190,7 @@ mangaTravelInvoice-System/
 ├── prisma/
 │   ├── schema.prisma                      # Skema database MySQL (6 model utama)
 │   └── seed.ts                            # Skrip pengisian data awal (akun, agen, settings, 25 transaksi)
-├── public/brand/logo.svg                  # Aset logo vektor bawaan Manga' Travel
+├── public/brand/logo.png                  # Aset logo vektor bawaan Manga' Travel
 ├── tests/                                 # Suite pengujian unit & integrasi domain (Vitest)
 ├── .env.example                           # Contoh konfigurasi environment
 ├── next.config.ts                         # Konfigurasi Next.js 16 (Cache Components, Turbopack, authInterrupts)
