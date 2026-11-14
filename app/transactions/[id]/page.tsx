@@ -94,6 +94,7 @@ async function TransactionDetailDynamicContent({
             <div className="border-t border-surface-border bg-neutral-25 px-6 py-4">
               <TransactionDetailFooterActions
                 transaction={detail.transaction}
+                isAdmin={session.role === "admin"}
               />
             </div>
           </div>

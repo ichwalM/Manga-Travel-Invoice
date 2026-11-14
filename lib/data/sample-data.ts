@@ -70,7 +70,7 @@ export const SAMPLE_SESSIONS: Record<"admin" | "agent", SampleUserSession> = {
 
 export const SAMPLE_SETTINGS: ReceiptBusinessSettings = {
   businessName: "Manga' Travel",
-  logoPath: "/brand/logo.svg",
+  logoPath: "/brand/logo.png",
   contactPersonName: "Abdul Rachman Manga",
   contactPersonPhone: "0812-4100-7287",
   address: null,

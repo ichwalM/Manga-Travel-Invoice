@@ -11,7 +11,7 @@ import { apiFetch } from "@/lib/client/api-client";
 import type { ReceiptBusinessSettings } from "@/lib/domain/receipt";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_LOGO_PATH = "/brand/logo.svg";
+const DEFAULT_LOGO_PATH = "/brand/logo.png";
 const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
 
 export interface SettingsFormProps {

@@ -2,7 +2,15 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Copy, Printer, Users } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  Copy,
+  Pencil,
+  Printer,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { CaseBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +22,8 @@ import { formatDateTimeTable, formatRupiah } from "@/lib/domain/format";
 import type { ReceiptTransactionRecord } from "@/lib/domain/receipt";
 import type { TransactionDetailResult } from "@/lib/services/transaction-service";
 import { cn } from "@/lib/utils";
+import { DeleteTransactionDialog } from "./delete-transaction-dialog";
+import { EditTransactionModal } from "./edit-transaction-modal";
 
 const SOURCE_LABELS: Record<ReceiptTransactionRecord["source"], string> = {
   import: "Impor Excel",
@@ -299,34 +309,102 @@ export function TransactionDetailBody({
 
 export function TransactionDetailFooterActions({
   transaction,
+  onUpdated,
+  onDeleted,
+  isAdmin = true,
 }: {
   transaction: ReceiptTransactionRecord;
+  onUpdated?: (updated: ReceiptTransactionRecord) => void;
+  onDeleted?: (deletedId: string) => void;
+  isAdmin?: boolean;
 }) {
+  const [isEditOpen, setIsEditOpen] = React.useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = React.useState(false);
   const hasGroup = Boolean(transaction.groupKey);
 
   return (
-    <div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-end">
-      <Button
-        asChild
-        variant={hasGroup ? "secondary" : "primary"}
-        className="w-full sm:w-auto"
-      >
-        <Link href={`/transactions/${transaction.id}/receipt?mode=individual`}>
-          <Printer className="h-4 w-4" aria-hidden="true" />
-          Cetak Struk Individual
-        </Link>
-      </Button>
+    <>
+      <div className="flex w-full flex-col gap-2">
+        {/* Tombol Cetak Struk */}
+        <div
+          className={cn(
+            "grid gap-2 w-full",
+            hasGroup ? "grid-cols-2" : "grid-cols-1"
+          )}
+        >
+          <Button
+            asChild
+            variant={hasGroup ? "secondary" : "primary"}
+            className="w-full text-xs sm:text-sm px-2.5 sm:px-4"
+          >
+            <Link
+              href={`/transactions/${transaction.id}/receipt?mode=individual`}
+            >
+              <Printer className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="truncate">Cetak Struk Individual</span>
+            </Link>
+          </Button>
 
-      {/* Sembunyikan tombol Cetak Struk Grup jika transaksi tidak punya group_key (F-06 > deposit_rule) */}
-      {hasGroup && (
-        <Button asChild variant="primary" className="w-full sm:w-auto">
-          <Link href={`/transactions/${transaction.id}/receipt?mode=group`}>
-            <Users className="h-4 w-4" aria-hidden="true" />
-            Cetak Struk Grup
-          </Link>
-        </Button>
-      )}
-    </div>
+          {/* Sembunyikan tombol Cetak Struk Grup jika transaksi tidak punya group_key (F-06 > deposit_rule) */}
+          {hasGroup && (
+            <Button
+              asChild
+              variant="primary"
+              className="w-full text-xs sm:text-sm px-2.5 sm:px-4"
+            >
+              <Link href={`/transactions/${transaction.id}/receipt?mode=group`}>
+                <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="truncate">Cetak Struk Grup</span>
+              </Link>
+            </Button>
+          )}
+        </div>
+
+        {/* Tombol Manipulasi Data: Edit & Hapus */}
+        {isAdmin && (
+          <div className="grid grid-cols-2 gap-2 w-full">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsEditOpen(true)}
+              className="w-full text-neutral-700 text-xs sm:text-sm px-2.5 sm:px-4"
+            >
+              <Pencil className="h-4 w-4 text-neutral-600 shrink-0" aria-hidden="true" />
+              <span>Edit</span>
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsDeleteOpen(true)}
+              className="w-full text-danger hover:bg-danger/10 hover:border-danger/30 text-xs sm:text-sm px-2.5 sm:px-4"
+            >
+              <Trash2 className="h-4 w-4 text-danger shrink-0" aria-hidden="true" />
+              <span>Hapus</span>
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <EditTransactionModal
+        open={isEditOpen}
+        onOpenChange={setIsEditOpen}
+        transaction={transaction}
+        onSuccess={(updated) => {
+          setIsEditOpen(false);
+          onUpdated?.(updated);
+        }}
+      />
+
+      <DeleteTransactionDialog
+        open={isDeleteOpen}
+        onOpenChange={setIsDeleteOpen}
+        transaction={transaction}
+        onSuccess={() => {
+          setIsDeleteOpen(false);
+          onDeleted?.(transaction.id);
+        }}
+      />
+    </>
   );
 }
 
@@ -337,6 +415,9 @@ export interface TransactionDetailDrawerProps {
   isLoading?: boolean;
   notFoundId?: string | null;
   onSelectRelated: (relatedId: string) => void;
+  onTransactionUpdated?: (updated: ReceiptTransactionRecord) => void;
+  onTransactionDeleted?: (deletedId: string) => void;
+  isAdmin?: boolean;
 }
 
 export function TransactionDetailDrawer({
@@ -346,28 +427,59 @@ export function TransactionDetailDrawer({
   isLoading = false,
   notFoundId,
   onSelectRelated,
+  onTransactionUpdated,
+  onTransactionDeleted,
+  isAdmin = true,
 }: TransactionDetailDrawerProps) {
+  const [currentDetail, setCurrentDetail] =
+    React.useState<TransactionDetailResult | null>(detail);
+
+  React.useEffect(() => {
+    setCurrentDetail(detail);
+  }, [detail]);
+
+  function handleUpdated(updated: ReceiptTransactionRecord) {
+    if (currentDetail) {
+      setCurrentDetail({
+        ...currentDetail,
+        transaction: updated,
+      });
+    }
+    onTransactionUpdated?.(updated);
+  }
+
+  function handleDeleted(deletedId: string) {
+    onOpenChange(false);
+    onTransactionDeleted?.(deletedId);
+  }
+
   return (
     <Drawer
       open={open}
       onOpenChange={onOpenChange}
       title="Detail Transaksi"
+      className="md:max-w-[500px]"
       headerBadge={
-        detail ? (
-          <CaseBadge caseValue={detail.transaction.case} />
+        currentDetail ? (
+          <CaseBadge caseValue={currentDetail.transaction.case} />
         ) : undefined
       }
       footer={
-        detail && !isLoading ? (
-          <TransactionDetailFooterActions transaction={detail.transaction} />
+        currentDetail && !isLoading ? (
+          <TransactionDetailFooterActions
+            transaction={currentDetail.transaction}
+            onUpdated={handleUpdated}
+            onDeleted={handleDeleted}
+            isAdmin={isAdmin}
+          />
         ) : undefined
       }
     >
       {isLoading ? (
         <TransactionDetailSkeleton />
-      ) : detail ? (
+      ) : currentDetail ? (
         <TransactionDetailBody
-          detail={detail}
+          detail={currentDetail}
           onSelectRelated={onSelectRelated}
         />
       ) : notFoundId ? (

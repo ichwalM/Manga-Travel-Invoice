@@ -674,6 +674,101 @@ export const localDataRepository: AppDataRepository = {
     return mapStoredTx(state, saved);
   },
 
+  async updateTransaction(id, input, actorUserId) {
+    const state = readDb();
+    const existing = state.transactions.find((t) => t.id === id);
+    if (!existing) {
+      throw new Error("Transaksi tidak ditemukan.");
+    }
+
+    const prevAgentId = existing.agentId;
+    const targetAgentId = input.agentId ?? existing.agentId;
+
+    if (input.agentId && input.agentId !== existing.agentId) {
+      const targetAgent = state.agents.find((a) => a.id === input.agentId);
+      if (!targetAgent) throw new Error("Agen target tidak ditemukan.");
+      if (!targetAgent.isActive) throw new Error("Agen target sedang nonaktif.");
+    }
+
+    if (input.agentId) existing.agentId = input.agentId;
+    if (input.transactionAt) existing.transactionAt = input.transactionAt.toISOString();
+    if (input.case) existing.case = input.case;
+    if (input.description !== undefined) existing.description = input.description;
+    if (input.debit !== undefined) existing.debit = input.debit.toString();
+    if (input.credit !== undefined) existing.credit = input.credit.toString();
+    if (input.orderNumber !== undefined) existing.orderNumber = input.orderNumber;
+    if (input.bookingCode !== undefined) existing.bookingCode = input.bookingCode;
+    existing.groupKey = existing.orderNumber ? existing.orderNumber : null;
+
+    existing.dedupHash = computeTransactionDedupHash({
+      agentId: existing.agentId,
+      transactionAt: new Date(existing.transactionAt),
+      case: existing.case,
+      debit: BigInt(existing.debit),
+      credit: BigInt(existing.credit),
+      description: existing.description,
+    });
+
+    if (state.transactions.some((t) => t.id !== id && t.dedupHash === existing.dedupHash)) {
+      existing.dedupHash = `${existing.dedupHash}-edit-${Date.now()}`;
+    }
+
+    recalculateAgentBalancesInPlace(state, prevAgentId);
+    if (targetAgentId !== prevAgentId) {
+      recalculateAgentBalancesInPlace(state, targetAgentId);
+    }
+
+    const currentAgent = state.agents.find((a) => a.id === existing.agentId);
+
+    appendAudit(state, {
+      userId: actorUserId,
+      action: "update_transaction",
+      entity: "transactions",
+      entityId: id,
+      metadata: {
+        agentCode: currentAgent?.code ?? "",
+        case: existing.case,
+        debit: existing.debit,
+        credit: existing.credit,
+        description: existing.description,
+      },
+    });
+
+    writeDb(state);
+    const updated = state.transactions.find((t) => t.id === id)!;
+    return mapStoredTx(state, updated);
+  },
+
+  async deleteTransaction(id, actorUserId) {
+    const state = readDb();
+    const idx = state.transactions.findIndex((t) => t.id === id);
+    if (idx === -1) {
+      throw new Error("Transaksi tidak ditemukan.");
+    }
+
+    const [deleted] = state.transactions.splice(idx, 1);
+    const agent = state.agents.find((a) => a.id === deleted.agentId);
+
+    recalculateAgentBalancesInPlace(state, deleted.agentId);
+
+    appendAudit(state, {
+      userId: actorUserId,
+      action: "delete_transaction",
+      entity: "transactions",
+      entityId: id,
+      metadata: {
+        agentCode: agent?.code ?? "",
+        case: deleted.case,
+        debit: deleted.debit,
+        credit: deleted.credit,
+        description: deleted.description,
+      },
+    });
+
+    writeDb(state);
+    return { success: true, agentId: deleted.agentId };
+  },
+
   async createImportBatchPreview(input) {
     const state = readDb();
     const uploader = state.users.find((u) => u.id === input.uploadedBy);

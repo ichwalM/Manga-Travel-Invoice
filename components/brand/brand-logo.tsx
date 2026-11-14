@@ -7,7 +7,7 @@ export interface BrandLogoProps {
   className?: string;
 }
 
-const DEFAULT_LOGO_PATH = "/brand/logo.svg";
+const DEFAULT_LOGO_PATH = "/brand/logo.png";
 
 /**
  * Komponen Logo Manga' Travel (design-spec.json > brand.logo).
@@ -32,16 +32,12 @@ export function BrandLogo({
         role="img"
         aria-label={businessName}
       >
-        <svg viewBox="0 0 64 64" className="h-8 w-8" fill="none">
-          <polygon
-            points="32,4 60,32 32,60 4,32"
-            fill="var(--color-accent-lime-500)"
-          />
-          <path
-            d="M16 37L46 20C48.2 18.8 50.4 19.8 49.8 22L45.8 30.2L51.8 35L48.2 37.5L42.8 34.1L34.5 41.6L36.2 47L32.8 48.8L29.2 43.5L22.6 41L24.4 38L29.8 39.2L36.4 32L19.5 39.6L16 37Z"
-            fill="var(--color-primary-600)"
-          />
-        </svg>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={isCustomLogo ? resolvedLogoSrc : "/brand/logo-icon.png"}
+          alt={`Logo ${businessName}`}
+          className="h-8 w-8 object-contain"
+        />
       </div>
     );
   }
@@ -71,7 +67,7 @@ export function BrandLogo({
         <img
           src={resolvedLogoSrc}
           alt={`Logo ${businessName}`}
-          className="h-auto max-h-20 w-44 object-contain"
+          className="h-auto max-h-24 w-auto max-w-[220px] object-contain"
         />
       </div>
     );
@@ -79,30 +75,12 @@ export function BrandLogo({
 
   return (
     <div className={cn("inline-flex items-center gap-2.5", className)}>
-      {isCustomLogo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={resolvedLogoSrc}
-          alt={`Logo ${businessName}`}
-          className="h-8 w-auto max-w-[112px] shrink-0 object-contain"
-        />
-      ) : (
-        <svg
-          viewBox="0 0 64 64"
-          className="h-8 w-8 shrink-0"
-          fill="none"
-          aria-hidden="true"
-        >
-          <polygon
-            points="32,4 60,32 32,60 4,32"
-            fill="var(--color-accent-lime-500)"
-          />
-          <path
-            d="M16 37L46 20C48.2 18.8 50.4 19.8 49.8 22L45.8 30.2L51.8 35L48.2 37.5L42.8 34.1L34.5 41.6L36.2 47L32.8 48.8L29.2 43.5L22.6 41L24.4 38L29.8 39.2L36.4 32L19.5 39.6L16 37Z"
-            fill="var(--color-primary-600)"
-          />
-        </svg>
-      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={isCustomLogo ? resolvedLogoSrc : "/brand/logo-icon.png"}
+        alt={`Logo ${businessName}`}
+        className="h-9 w-9 shrink-0 object-contain"
+      />
       <div className="flex flex-col leading-tight">
         <span className="text-[15px] font-bold tracking-tight text-primary-800">
           {businessName}

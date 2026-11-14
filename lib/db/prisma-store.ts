@@ -6,6 +6,7 @@
 import type { Prisma } from "@prisma/client";
 import { SAMPLE_SETTINGS } from "@/lib/data/sample-data";
 import { calculateAgentRunningBalances } from "@/lib/domain/balance";
+import { computeTransactionDedupHash } from "@/lib/domain/ingest";
 import type { ParsedImportPreviewRow } from "@/lib/domain/excel-parser";
 import type {
   ReceiptBusinessSettings,
@@ -392,7 +393,7 @@ export const prismaDataRepository: AppDataRepository = {
     }
     return {
       businessName: s.businessName,
-      logoPath: s.logoPath || "/brand/logo.svg",
+      logoPath: s.logoPath || "/brand/logo.png",
       contactPersonName: s.contactPersonName,
       contactPersonPhone: s.contactPersonPhone,
       address: s.address,
@@ -440,7 +441,7 @@ export const prismaDataRepository: AppDataRepository = {
 
     return {
       businessName: s.businessName,
-      logoPath: s.logoPath || "/brand/logo.svg",
+      logoPath: s.logoPath || "/brand/logo.png",
       contactPersonName: s.contactPersonName,
       contactPersonPhone: s.contactPersonPhone,
       address: s.address,
@@ -602,6 +603,150 @@ export const prismaDataRepository: AppDataRepository = {
         groupKey: refreshed.groupKey,
         source: refreshed.source,
       };
+    });
+  },
+
+  async updateTransaction(id, input, actorUserId) {
+    const prisma = getPrismaClient();
+    const txId = BigInt(id);
+
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.transaction.findUnique({
+        where: { id: txId },
+        include: { agent: true },
+      });
+      if (!existing) throw new Error("Transaksi tidak ditemukan.");
+
+      const targetAgentId = input.agentId ?? existing.agentId;
+      if (input.agentId && input.agentId !== existing.agentId) {
+        const targetAgent = await tx.agent.findUnique({ where: { id: input.agentId } });
+        if (!targetAgent) throw new Error("Agen target tidak ditemukan.");
+        if (!targetAgent.isActive) throw new Error("Agen target sedang nonaktif.");
+      }
+
+      const updatedDate = input.transactionAt ?? existing.transactionAt;
+      const updatedCase = input.case ?? existing.case;
+      const updatedDesc = input.description ?? existing.description;
+      const updatedDebit = input.debit !== undefined ? input.debit : existing.debit;
+      const updatedCredit = input.credit !== undefined ? input.credit : existing.credit;
+      const updatedOrder = input.orderNumber !== undefined ? input.orderNumber : existing.orderNumber;
+      const updatedBooking = input.bookingCode !== undefined ? input.bookingCode : existing.bookingCode;
+      const updatedGroupKey = updatedOrder ? updatedOrder : null;
+
+      const dedupHash = computeTransactionDedupHash({
+        agentId: targetAgentId,
+        transactionAt: updatedDate,
+        case: updatedCase,
+        debit: updatedDebit,
+        credit: updatedCredit,
+        description: updatedDesc,
+      });
+
+      const existingHash = await tx.transaction.findFirst({
+        where: { dedupHash, NOT: { id: txId } },
+      });
+      const finalHash = existingHash ? `${dedupHash}-edit-${Date.now()}` : dedupHash;
+
+      await tx.transaction.update({
+        where: { id: txId },
+        data: {
+          agentId: targetAgentId,
+          transactionAt: updatedDate,
+          case: updatedCase,
+          description: updatedDesc,
+          debit: updatedDebit,
+          credit: updatedCredit,
+          orderNumber: updatedOrder,
+          bookingCode: updatedBooking,
+          groupKey: updatedGroupKey,
+          dedupHash: finalHash,
+        },
+      });
+
+      // Recalculate balance for current agent
+      await recalculateAgentBalancesPrisma(tx, existing.agentId);
+      // If agent changed, recalculate target agent too
+      if (targetAgentId !== existing.agentId) {
+        await recalculateAgentBalancesPrisma(tx, targetAgentId);
+      }
+
+      const refreshed = await tx.transaction.findUniqueOrThrow({
+        where: { id: txId },
+        include: { agent: true },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: actorUserId,
+          action: "update_transaction",
+          entity: "transactions",
+          entityId: id,
+          metadata: {
+            agentCode: refreshed.agent.code,
+            case: refreshed.case,
+            debit: refreshed.debit.toString(),
+            credit: refreshed.credit.toString(),
+            description: refreshed.description,
+          },
+        },
+      });
+
+      return {
+        id: refreshed.id.toString(),
+        agentId: refreshed.agentId,
+        agentCode: refreshed.agent.code,
+        agentName: refreshed.agent.name,
+        transactionAt: refreshed.transactionAt.toISOString(),
+        case: refreshed.case,
+        description: refreshed.description,
+        debit: refreshed.debit.toString(),
+        credit: refreshed.credit.toString(),
+        balance: refreshed.balance.toString(),
+        orderNumber: refreshed.orderNumber,
+        bookingCode: refreshed.bookingCode,
+        groupKey: refreshed.groupKey,
+        source: refreshed.source,
+        importBatchId: refreshed.importBatchId,
+      };
+    });
+  },
+
+  async deleteTransaction(id, actorUserId) {
+    const prisma = getPrismaClient();
+    const txId = BigInt(id);
+
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.transaction.findUnique({
+        where: { id: txId },
+        include: { agent: true },
+      });
+      if (!existing) throw new Error("Transaksi tidak ditemukan.");
+
+      const agentId = existing.agentId;
+
+      await tx.transaction.delete({
+        where: { id: txId },
+      });
+
+      await recalculateAgentBalancesPrisma(tx, agentId);
+
+      await tx.auditLog.create({
+        data: {
+          userId: actorUserId,
+          action: "delete_transaction",
+          entity: "transactions",
+          entityId: id,
+          metadata: {
+            agentCode: existing.agent.code,
+            case: existing.case,
+            debit: existing.debit.toString(),
+            credit: existing.credit.toString(),
+            description: existing.description,
+          },
+        },
+      });
+
+      return { success: true, agentId };
     });
   },
 

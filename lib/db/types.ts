@@ -159,6 +159,24 @@ export interface AppDataRepository {
     dedupHash: string;
     actorUserId: string;
   }): Promise<ReceiptTransactionRecord>;
+  updateTransaction(
+    id: string,
+    input: {
+      agentId?: string;
+      transactionAt?: Date;
+      case?: string;
+      description?: string;
+      debit?: bigint;
+      credit?: bigint;
+      orderNumber?: string | null;
+      bookingCode?: string | null;
+    },
+    actorUserId: string
+  ): Promise<ReceiptTransactionRecord>;
+  deleteTransaction(
+    id: string,
+    actorUserId: string
+  ): Promise<{ success: boolean; agentId: string }>;
 
   // Imports
   createImportBatchPreview(input: {

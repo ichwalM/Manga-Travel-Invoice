@@ -777,6 +777,10 @@ export function TransactionsClient({
             : null
         }
         onSelectRelated={(relId) => handleOpenDetail(relId)}
+        isAdmin={session.role === "admin"}
+        onTransactionDeleted={() => {
+          handleCloseDetail(false);
+        }}
       />
     </div>
   );
