@@ -195,5 +195,78 @@ describe("Excel & CSV Import Parser (F-08)", () => {
       );
     }
   });
+
+  it("membaca laporan .xls berformat HTML dari sistem lama (header KODEAGEN, <tr> tidak ditutup, tanggal berjam)", () => {
+    const td = (v: string) => `<td style="border:1px solid #000;">${v}</td>`;
+    const th = (v: string) =>
+      `<th style="background-color:#000;color:#FFF;">${v}</th>`;
+    const dataRow = (cells: string[]) => `<tr>${cells.map(td).join("")}</tr>\t\n`;
+    const html =
+      `<table><tr bgcolor="silver"><tr><th colspan="8" style="padding-bottom:20px;"></th></tr>` +
+      `<tr><th colspan="8" style="padding-bottom:20px;">LAPORAN CASHFLOW USER: eman<br>Periode 2023-11-01 s/d 2023-11-01</th></tr>` +
+      `<tr><th colspan="8" style="padding-bottom:20px;"></th></tr>` +
+      ["ID", "TANGGAL", "KODEAGEN", "CASE", "KETERANGAN", "DEBET", "KREDIT", "SALDO"]
+        .map(th)
+        .join("") +
+      `</tr>` +
+      dataRow([
+        "110834033",
+        "2023-11-01 07:31:51",
+        "JKT-37287",
+        "withdrawal",
+        "Invoice 984936260 // Pembayaran PLN Pra Bayar 200.000 // PLNS200 // 321302227526",
+        "200550",
+        "",
+        "10551022",
+      ]) +
+      dataRow([
+        "110834055",
+        "2023-11-01 07:32:35",
+        "JKT-37287",
+        "withdrawal",
+        "Invoice 050069395 // Pembayaran PLN Pra Bayar 200.000 // PLNS200 // 321302227526",
+        "200550",
+        "",
+        "10350472",
+      ]) +
+      `</table>`;
+
+    const freshAgents = new Map<string, ImportAgentLookup>([
+      [
+        "JKT-37287",
+        {
+          ...sampleAgents.get("JKT-37287")!,
+          hasPriorTransactions: false,
+          latestTransactionAt: null,
+        },
+      ],
+    ]);
+
+    const outcome = parseAndValidateImportBuffer({
+      buffer: Buffer.from(html, "utf8"),
+      fileName: "LAPORAN-CASHFLOW-20231101-20231101.xls",
+      agentsByCode: freshAgents,
+      existingDedupHashes: new Set(),
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.reportTitle).toContain("LAPORAN CASHFLOW USER: eman");
+      expect(outcome.totalRows).toBe(2);
+      expect(outcome.errorRows).toBe(0);
+      expect(outcome.validRows).toBe(2);
+      // Hanya peringatan "No. Pesanan tidak ditemukan" (pembayaran PLN), bukan selisih saldo
+      for (const row of outcome.rows) {
+        expect(row.messages.every((m) => m.includes("No. Pesanan"))).toBe(true);
+      }
+
+      const first = outcome.rows[0];
+      expect(first.rawTanggal).toBe("2023-11-01 07:31:51");
+      expect(first.rawAgentCode).toBe("JKT-37287");
+      expect(first.prepared?.debit).toBe("200550");
+      expect(first.prepared?.projectedBalance).toBe("10551022");
+      expect(outcome.rows[1].prepared?.projectedBalance).toBe("10350472");
+    }
+  });
 });
 

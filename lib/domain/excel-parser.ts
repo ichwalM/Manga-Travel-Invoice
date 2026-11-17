@@ -83,11 +83,69 @@ export type ParseImportFileOutcome =
 const FILE_UNREADABLE_MSG =
   "File tidak dapat dibaca. Simpan ulang sebagai .xlsx atau .csv lalu coba lagi.";
 
+/**
+ * Variasi penulisan header yang dipetakan ke nama kolom baku.
+ * Kunci dibandingkan setelah spasi, '_', '-', dan '.' dibuang
+ * (mis. "KODEAGEN", "KODE_AGEN", "Kode Agen" -> "KODE AGEN").
+ */
+const HEADER_ALIASES: Record<string, string> = {
+  TANGGAL: "TANGGAL",
+  KODEAGEN: "KODE AGEN",
+  CASE: "CASE",
+  KETERANGAN: "KETERANGAN",
+  DEBET: "DEBET",
+  DEBIT: "DEBET",
+  KREDIT: "KREDIT",
+  CREDIT: "KREDIT",
+  SALDO: "SALDO",
+};
+
 function normalizeHeaderCell(cell: unknown): string {
-  return String(cell ?? "")
+  const spaced = String(cell ?? "")
     .trim()
     .replace(/\s+/g, " ")
     .toUpperCase();
+  const compact = spaced.replace(/[\s_.-]+/g, "");
+  return HEADER_ALIASES[compact] ?? spaced;
+}
+
+function isBlankCell(cell: unknown): boolean {
+  return String(cell ?? "").trim() === "";
+}
+
+/**
+ * Laporan .xls hasil ekspor sistem lama sebenarnya berupa tabel HTML dengan
+ * tag <tr> yang tidak ditutup. SheetJS lalu menaruh sel header bergeser ke
+ * kanan (setelah sel judul ber-colspan), sementara baris data tetap mulai
+ * dari kolom pertama. Fungsi ini menghitung pergeseran tersebut dengan
+ * mencocokkan posisi kolom TANGGAL pada baris data pertama.
+ */
+function detectDataColumnShift(
+  headerRow: unknown[],
+  dataRows: unknown[][],
+  tanggalIdx: number
+): number {
+  let leadingBlanks = 0;
+  while (
+    leadingBlanks < headerRow.length &&
+    isBlankCell(headerRow[leadingBlanks])
+  ) {
+    leadingBlanks += 1;
+  }
+  if (leadingBlanks === 0) return 0;
+
+  const firstDataRow = dataRows.find(
+    (row) => Array.isArray(row) && row.some((c) => !isBlankCell(c))
+  );
+  if (!firstDataRow) return 0;
+
+  const alignedHasValue = !isBlankCell(firstDataRow[tanggalIdx]);
+  const shiftedIdx = tanggalIdx - leadingBlanks;
+  const shiftedLooksLikeDate =
+    shiftedIdx >= 0 &&
+    parseFlexibleImportDate(String(firstDataRow[shiftedIdx] ?? "")) !== null;
+
+  return !alignedHasValue && shiftedLooksLikeDate ? leadingBlanks : 0;
 }
 
 /**
@@ -153,7 +211,9 @@ export function parseAndValidateImportBuffer(params: {
     workbook = XLSX.read(buffer, {
       type: "buffer",
       cellDates: false,
-      raw: false,
+      // Untuk sumber teks (HTML ".xls" & CSV) jangan biarkan SheetJS menebak tipe:
+      // tanggal "2023-11-01 07:31:51" akan diubah menjadi "11/1/23" dan jamnya hilang.
+      raw: true,
     });
   } catch {
     return {
@@ -241,13 +301,18 @@ export function parseAndValidateImportBuffer(params: {
     }
   }
 
+  const dataRows = matrix.slice(headerRowIdx + 1);
+  const columnShift = detectDataColumnShift(
+    matrix[headerRowIdx] as unknown[],
+    dataRows as unknown[][],
+    colIndex["TANGGAL"]
+  );
+
   const getCell = (row: unknown[], colName: string): string => {
     const idx = colIndex[colName];
     if (idx === undefined) return "";
-    return String(row[idx] ?? "").trim();
+    return String(row[idx - columnShift] ?? "").trim();
   };
-
-  const dataRows = matrix.slice(headerRowIdx + 1);
   const seenHashesInFile = new Set<string>();
   const previewRows: ParsedImportPreviewRow[] = [];
 
