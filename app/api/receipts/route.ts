@@ -8,8 +8,10 @@ import {
 } from "@/lib/auth/api-guards";
 import { getDataRepository } from "@/lib/db/repository";
 import {
+  getBulkReceiptsForSession,
   getReceiptForSession,
   getTransactionDetailForSession,
+  MAX_BULK_RECEIPTS,
 } from "@/lib/services/transaction-service";
 
 const receiptQuerySchema = z.object({
@@ -69,6 +71,15 @@ const recordPrintSchema = z.object({
   size: z.enum(["58", "80", "a4"]).optional(),
 });
 
+const recordBulkPrintSchema = z.object({
+  transactionIds: z
+    .array(z.string().trim().min(1))
+    .min(1, "Pilih minimal satu transaksi.")
+    .max(MAX_BULK_RECEIPTS, `Maksimal ${MAX_BULK_RECEIPTS} transaksi sekali cetak.`),
+  mode: z.enum(["individual", "group"]).default("individual"),
+  size: z.enum(["58", "80", "a4"]).optional(),
+});
+
 /**
  * Mencatat aktivitas pencetakan/ekspor struk (print_receipt) ke audit log
  * dengan memverifikasi hak akses ruang lingkup agen pengguna terlebih dahulu.
@@ -89,6 +100,48 @@ export async function POST(request: NextRequest) {
         { code: "INVALID_JSON", message: "Format permintaan tidak valid." },
         { status: 400 }
       );
+    }
+
+    // Cetak massal: { transactionIds: [...] } -> satu entri audit per transaksi yang tercakup
+    if (
+      body !== null &&
+      typeof body === "object" &&
+      "transactionIds" in (body as Record<string, unknown>)
+    ) {
+      const bulk = recordBulkPrintSchema.safeParse(body);
+      if (!bulk.success) {
+        return zodErrorToApiResponse(bulk.error, "Parameter cetak tidak valid.");
+      }
+
+      const { coveredIds } = await getBulkReceiptsForSession({
+        session: auth.session,
+        transactionIds: bulk.data.transactionIds,
+        mode: bulk.data.mode,
+        printedAt: new Date(),
+      });
+      if (coveredIds.length === 0) {
+        return NextResponse.json(
+          { code: "NOT_FOUND", message: "Transaksi tidak ditemukan." },
+          { status: 404 }
+        );
+      }
+
+      const repo = getDataRepository();
+      for (const transactionId of coveredIds) {
+        await repo.writeAuditLog({
+          userId: auth.session.id,
+          action: "print_receipt",
+          entity: "transactions",
+          entityId: transactionId,
+          metadata: {
+            mode: bulk.data.mode,
+            bulk: true,
+            ...(bulk.data.size ? { size: bulk.data.size } : {}),
+          },
+        });
+      }
+
+      return NextResponse.json({ ok: true, count: coveredIds.length });
     }
 
     const parsed = recordPrintSchema.safeParse(body);

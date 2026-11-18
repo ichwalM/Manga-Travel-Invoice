@@ -197,6 +197,47 @@ export function TransactionsClient({
   // Indikator pemuatan tabel (saat memfilter, mengurutkan, atau berpindah halaman)
   const isTableTransitioning = isPending && optimisticDetailId === null;
 
+  // Pilihan transaksi untuk cetak massal (tetap tersimpan saat pindah halaman/filter)
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
+  const selectedSet = React.useMemo(() => new Set(selectedIds), [selectedIds]);
+  const pageIds = result.items.map((tx) => tx.id);
+  const selectedOnPage = pageIds.filter((id) => selectedSet.has(id)).length;
+  const allOnPageSelected =
+    pageIds.length > 0 && selectedOnPage === pageIds.length;
+  const someOnPageSelected = selectedOnPage > 0 && !allOnPageSelected;
+  const selectAllRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someOnPageSelected;
+    }
+  }, [someOnPageSelected]);
+
+  function toggleSelected(txId: string) {
+    setSelectedIds((prev) =>
+      prev.includes(txId) ? prev.filter((id) => id !== txId) : [...prev, txId]
+    );
+  }
+
+  function toggleSelectAllOnPage() {
+    setSelectedIds((prev) => {
+      if (allOnPageSelected) {
+        const pageSet = new Set(pageIds);
+        return prev.filter((id) => !pageSet.has(id));
+      }
+      const next = [...prev];
+      for (const id of pageIds) {
+        if (!next.includes(id)) next.push(id);
+      }
+      return next;
+    });
+  }
+
+  const bulkReceiptHref = `/transactions/receipts?${new URLSearchParams({
+    ids: selectedIds.join(","),
+    mode: "individual",
+  }).toString()}`;
+
   return (
     <div className="space-y-6">
       {/* 1. Baris StatCard x4 (F-02 > summary_cards) */}
@@ -395,6 +436,43 @@ export function TransactionsClient({
         />
       ) : (
         <>
+          {/* Bilah aksi cetak massal */}
+          {selectedIds.length > 0 && (
+            <div
+              role="region"
+              aria-label="Aksi transaksi terpilih"
+              className="sticky top-2 z-20 flex flex-col gap-3 rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 shadow-card sm:flex-row sm:items-center sm:justify-between"
+            >
+              <p className="text-sm text-neutral-900">
+                <strong className="font-semibold">{selectedIds.length}</strong>{" "}
+                transaksi dipilih
+                {selectedIds.length > selectedOnPage && (
+                  <span className="text-neutral-500">
+                    {" "}
+                    ({selectedIds.length - selectedOnPage} dari halaman lain)
+                  </span>
+                )}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedIds([])}
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                  Batalkan Pilihan
+                </Button>
+                <Button asChild variant="primary" size="sm">
+                  <Link href={bulkReceiptHref}>
+                    <Printer className="h-4 w-4" aria-hidden="true" />
+                    Cetak {selectedIds.length} Struk
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* DataTable Desktop (>= 768px) */}
           <div className="hidden overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-card md:block">
             {isTableTransitioning && (
@@ -404,6 +482,17 @@ export function TransactionsClient({
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 border-b border-surface-border bg-surface-table-header">
                   <tr>
+                    <th scope="col" className="w-[44px] py-3 pl-4 pr-0">
+                      <input
+                        ref={selectAllRef}
+                        type="checkbox"
+                        checked={allOnPageSelected}
+                        onChange={toggleSelectAllOnPage}
+                        aria-label="Pilih semua transaksi di halaman ini"
+                        title="Pilih semua di halaman ini"
+                        className="h-4 w-4 cursor-pointer rounded-xs accent-primary-600"
+                      />
+                    </th>
                     <th
                       scope="col"
                       className="w-[72px] px-4 py-3 text-xs font-semibold uppercase tracking-wider text-neutral-500"
@@ -506,8 +595,24 @@ export function TransactionsClient({
                             handleOpenDetail(tx.id);
                           }
                         }}
-                        className="h-[52px] cursor-pointer transition-colors hover:bg-surface-table-hover focus-visible:bg-surface-table-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500"
+                        className={cn(
+                          "h-[52px] cursor-pointer transition-colors hover:bg-surface-table-hover focus-visible:bg-surface-table-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500",
+                          selectedSet.has(tx.id) && "bg-primary-50"
+                        )}
                       >
+                        <td
+                          className="py-3 pl-4 pr-0"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedSet.has(tx.id)}
+                            onChange={() => toggleSelected(tx.id)}
+                            aria-label={`Pilih transaksi ID ${tx.id} untuk dicetak`}
+                            className="h-4 w-4 cursor-pointer rounded-xs accent-primary-600"
+                          />
+                        </td>
                         <td className="px-4 py-3 font-mono text-xs font-medium text-neutral-500">
                           {tx.id}
                         </td>
@@ -612,10 +717,26 @@ export function TransactionsClient({
                       handleOpenDetail(tx.id);
                     }
                   }}
-                  className="rounded-lg border border-surface-border bg-surface-card p-4 shadow-card transition-colors active:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 cursor-pointer"
+                  className={cn(
+                    "rounded-lg border border-surface-border bg-surface-card p-4 shadow-card transition-colors active:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 cursor-pointer",
+                    selectedSet.has(tx.id) && "border-primary-200 bg-primary-50"
+                  )}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
+                      <span
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="inline-flex"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedSet.has(tx.id)}
+                          onChange={() => toggleSelected(tx.id)}
+                          aria-label={`Pilih transaksi ID ${tx.id} untuk dicetak`}
+                          className="h-5 w-5 cursor-pointer rounded-xs accent-primary-600"
+                        />
+                      </span>
                       <CaseBadge caseValue={tx.case} />
                       {isAdmin && (
                         <span className="text-xs font-medium text-neutral-500">

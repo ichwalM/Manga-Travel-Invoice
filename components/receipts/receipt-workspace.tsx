@@ -22,10 +22,10 @@ import type {
 } from "@/lib/domain/receipt";
 import { cn } from "@/lib/utils";
 
-const RECEIPT_SIZE_STORAGE_KEY = "manga_receipt_paper_size";
-const RECEIPT_SIZE_CHANGE_EVENT = "manga-receipt-size-change";
+export const RECEIPT_SIZE_STORAGE_KEY = "manga_receipt_paper_size";
+export const RECEIPT_SIZE_CHANGE_EVENT = "manga-receipt-size-change";
 
-function subscribeReceiptSize(callback: () => void) {
+export function subscribeReceiptSize(callback: () => void) {
   window.addEventListener("storage", callback);
   window.addEventListener(RECEIPT_SIZE_CHANGE_EVENT, callback);
   return () => {
@@ -34,7 +34,7 @@ function subscribeReceiptSize(callback: () => void) {
   };
 }
 
-function getStoredReceiptSize(): ReceiptPaperSize {
+export function getStoredReceiptSize(): ReceiptPaperSize {
   const saved = window.localStorage.getItem(RECEIPT_SIZE_STORAGE_KEY);
   if (saved === "58" || saved === "80" || saved === "a4") {
     return saved;
@@ -42,7 +42,7 @@ function getStoredReceiptSize(): ReceiptPaperSize {
   return "80";
 }
 
-function getServerReceiptSize(): ReceiptPaperSize {
+export function getServerReceiptSize(): ReceiptPaperSize {
   return "80";
 }
 
@@ -346,7 +346,7 @@ export function ReceiptWorkspace({
 /**
  * Template Struk Thermal 58mm & 80mm (Hitam-putih murni, JetBrains Mono, garis putus-putus).
  */
-function ThermalReceiptTemplate({
+export function ThermalReceiptTemplate({
   receipt,
   paperWidth,
   showLogo,
@@ -512,7 +512,7 @@ function ThermalReceiptTemplate({
 /**
  * Template Struk A4 (Plus Jakarta Sans 12px, kop kiri-kanan, tabel rincian rapi).
  */
-function A4ReceiptTemplate({ receipt }: { receipt: ReceiptPayload }) {
+export function A4ReceiptTemplate({ receipt }: { receipt: ReceiptPayload }) {
   return (
     <article className="print-area w-full max-w-[210mm] rounded-sm bg-neutral-0 p-8 text-xs leading-5 text-neutral-900 shadow-card sm:p-12 print:max-w-none print:p-0">
       {/* Header A4: Logo kiri atas, info usaha kanan atas */}

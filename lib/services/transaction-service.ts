@@ -13,6 +13,7 @@ import {
   type BuildReceiptResult,
   type ReceiptBusinessSettings,
   type ReceiptMode,
+  type ReceiptPayload,
   type ReceiptTransactionRecord,
 } from "@/lib/domain/receipt";
 import type { ParsedTransactionQuery } from "@/lib/validation/transaction-query";
@@ -369,6 +370,84 @@ export function buildReceiptFromDataset(params: {
   });
 }
 
+/** Batas jumlah transaksi yang dapat dicetak sekaligus dalam satu permintaan. */
+export const MAX_BULK_RECEIPTS = 100;
+
+export interface BulkReceiptResult {
+  receipts: ReceiptPayload[];
+  /** ID yang tidak ditemukan / di luar ruang lingkup agen pengguna. */
+  missingIds: string[];
+  /** ID transaksi yang benar-benar tercakup oleh struk yang dihasilkan. */
+  coveredIds: string[];
+}
+
+/**
+ * Membentuk banyak struk sekaligus dari satu dataset (cetak massal).
+ * - mode "individual": satu struk per transaksi terpilih.
+ * - mode "group": transaksi yang memiliki No. Pesanan digabung menjadi satu
+ *   struk grup per pesanan (tidak diulang walau beberapa anggotanya dipilih);
+ *   transaksi tanpa No. Pesanan tetap dicetak sebagai struk individual.
+ * Urutan struk mengikuti urutan ID yang dipilih.
+ */
+export function buildBulkReceiptsFromDataset(params: {
+  session: SessionUser;
+  transactionIds: readonly string[];
+  mode: ReceiptMode;
+  printedAt: Date;
+  settings: ReceiptBusinessSettings;
+  dataset: readonly ReceiptTransactionRecord[];
+}): BulkReceiptResult {
+  const { session, mode, printedAt, settings, dataset } = params;
+  const scoped = filterDatasetForSession(session, dataset);
+  const byId = new Map(scoped.map((tx) => [tx.id, tx]));
+
+  const receipts: ReceiptPayload[] = [];
+  const missingIds: string[] = [];
+  const coveredIds: string[] = [];
+  const seenIds = new Set<string>();
+  const printedGroups = new Set<string>();
+
+  for (const rawId of params.transactionIds) {
+    const id = rawId.trim();
+    if (!id || seenIds.has(id)) continue;
+    seenIds.add(id);
+
+    const transaction = byId.get(id);
+    if (!transaction) {
+      missingIds.push(id);
+      continue;
+    }
+
+    const useGroup = mode === "group" && Boolean(transaction.groupKey);
+    if (useGroup) {
+      const groupId = `${transaction.agentId}::${transaction.groupKey}`;
+      if (printedGroups.has(groupId)) {
+        coveredIds.push(id);
+        continue;
+      }
+      printedGroups.add(groupId);
+    }
+
+    const built = buildReceiptFromDataset({
+      session,
+      transactionId: id,
+      mode: useGroup ? "group" : "individual",
+      printedAt,
+      settings,
+      dataset,
+    });
+
+    if (built.ok) {
+      receipts.push(built.receipt);
+      coveredIds.push(id);
+    } else {
+      missingIds.push(id);
+    }
+  }
+
+  return { receipts, missingIds, coveredIds };
+}
+
 // ============================================================================
 // Fungsi Live Async yang membaca dari Repository Aktif (MySQL Prisma / Local Store)
 // ============================================================================
@@ -435,4 +514,26 @@ export async function getReceiptForSession(params: {
   }
 
   return built;
+}
+
+export async function getBulkReceiptsForSession(params: {
+  session: SessionUser;
+  transactionIds: readonly string[];
+  mode: ReceiptMode;
+  printedAt: Date;
+}): Promise<BulkReceiptResult> {
+  const repo = getDataRepository();
+  const [dataset, settings] = await Promise.all([
+    repo.listAllTransactionsForScope(params.session),
+    repo.getSettings(),
+  ]);
+
+  return buildBulkReceiptsFromDataset({
+    session: params.session,
+    transactionIds: params.transactionIds.slice(0, MAX_BULK_RECEIPTS),
+    mode: params.mode,
+    printedAt: params.printedAt,
+    settings,
+    dataset,
+  });
 }
