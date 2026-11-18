@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FileText,
   FileUp,
   Loader2,
   LogOut,
@@ -39,6 +40,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     label: "Transaksi",
     href: "/transactions",
     icon: ReceiptText,
+    roles: ["admin", "agent"],
+  },
+  {
+    label: "Buat Invoice",
+    href: "/invoices/new",
+    icon: FileText,
     roles: ["admin", "agent"],
   },
   {

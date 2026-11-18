@@ -198,3 +198,41 @@ describe("Invoice gabungan (buildCombinedInvoicesFromDataset)", () => {
     expect(agentRes.missingIds).toEqual(["50"]);
   });
 });
+
+import { listInvoiceCandidatesFromDataset } from "@/lib/services/transaction-service";
+
+describe("Pilihan item Buat Invoice (listInvoiceCandidatesFromDataset)", () => {
+  it("menampilkan transaksi satu agen, terbaru lebih dulu, dan bisa dibatasi periode", () => {
+    const all = listInvoiceCandidatesFromDataset({
+      session: admin,
+      query: { agentCode: "JKT-37287", from: "", to: "" },
+      dataset,
+    });
+    expect(all.items.map((t) => t.id)).toEqual(["29", "28", "27"]);
+    expect(all.totalMatched).toBe(3);
+
+    const outside = listInvoiceCandidatesFromDataset({
+      session: admin,
+      query: { agentCode: "JKT-37287", from: "2026-08-01", to: "2026-08-31" },
+      dataset,
+    });
+    expect(outside.items).toEqual([]);
+
+    const invalid = listInvoiceCandidatesFromDataset({
+      session: admin,
+      query: { agentCode: "JKT-37287", from: "2026-08-31", to: "2026-08-01" },
+      dataset,
+    });
+    expect(invalid.validationError).not.toBeNull();
+  });
+
+  it("agen selalu melihat transaksinya sendiri walau meminta agen lain", () => {
+    const res = listInvoiceCandidatesFromDataset({
+      session: agentEman,
+      query: { agentCode: "MKS-20819", from: "", to: "" },
+      dataset,
+    });
+    expect(res.agentCode).toBe("JKT-37287");
+    expect(res.items.every((t) => t.agentCode === "JKT-37287")).toBe(true);
+  });
+});

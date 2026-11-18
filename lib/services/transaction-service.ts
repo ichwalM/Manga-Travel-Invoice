@@ -501,6 +501,92 @@ export function buildCombinedInvoicesFromDataset(params: {
   return { invoices, missingIds, coveredIds };
 }
 
+/** Batas jumlah transaksi yang ditampilkan sebagai pilihan di halaman Buat Invoice. */
+export const MAX_INVOICE_CANDIDATES = 500;
+
+export interface InvoiceCandidateQuery {
+  agentCode: string;
+  /** YYYY-MM-DD (zona waktu aplikasi), opsional */
+  from: string;
+  /** YYYY-MM-DD (zona waktu aplikasi), opsional */
+  to: string;
+}
+
+export interface InvoiceCandidateResult {
+  /** Kode agen yang benar-benar dipakai (agen login selalu agennya sendiri). */
+  agentCode: string;
+  items: ReceiptTransactionRecord[];
+  totalMatched: number;
+  truncated: boolean;
+  validationError: string | null;
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Daftar transaksi satu agen (opsional dalam rentang tanggal) yang bisa dipilih
+ * untuk dimasukkan ke invoice. Diurutkan terbaru lebih dulu.
+ */
+export function listInvoiceCandidatesFromDataset(params: {
+  session: SessionUser;
+  query: InvoiceCandidateQuery;
+  dataset: readonly ReceiptTransactionRecord[];
+}): InvoiceCandidateResult {
+  const { session, query } = params;
+  const agentCode =
+    session.role === "agent" ? (session.agentCode ?? "") : query.agentCode.trim();
+
+  const empty = (validationError: string | null): InvoiceCandidateResult => ({
+    agentCode,
+    items: [],
+    totalMatched: 0,
+    truncated: false,
+    validationError,
+  });
+
+  if (!agentCode) return empty(null);
+  if (query.from && !ISO_DATE_RE.test(query.from)) {
+    return empty("Format tanggal awal tidak valid.");
+  }
+  if (query.to && !ISO_DATE_RE.test(query.to)) {
+    return empty("Format tanggal akhir tidak valid.");
+  }
+  if (query.from && query.to && query.from > query.to) {
+    return empty("Tanggal awal tidak boleh lebih besar dari tanggal akhir.");
+  }
+
+  const fromTs = query.from
+    ? new Date(`${query.from}T00:00:00.000+07:00`).getTime()
+    : null;
+  const toTs = query.to
+    ? new Date(`${query.to}T23:59:59.999+07:00`).getTime()
+    : null;
+
+  const matched = filterDatasetForSession(session, params.dataset)
+    .filter((tx) => tx.agentCode === agentCode)
+    .filter((tx) => {
+      const ts = new Date(tx.transactionAt).getTime();
+      if (fromTs !== null && ts < fromTs) return false;
+      if (toTs !== null && ts > toTs) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const diff =
+        new Date(b.transactionAt).getTime() -
+        new Date(a.transactionAt).getTime();
+      if (diff !== 0) return diff;
+      return BigInt(b.id) > BigInt(a.id) ? 1 : -1;
+    });
+
+  return {
+    agentCode,
+    items: matched.slice(0, MAX_INVOICE_CANDIDATES),
+    totalMatched: matched.length,
+    truncated: matched.length > MAX_INVOICE_CANDIDATES,
+    validationError: null,
+  };
+}
+
 // ============================================================================
 // Fungsi Live Async yang membaca dari Repository Aktif (MySQL Prisma / Local Store)
 // ============================================================================
@@ -609,4 +695,14 @@ export async function getCombinedInvoicesForSession(params: {
     settings,
     dataset,
   });
+}
+
+
+export async function listInvoiceCandidatesForSession(
+  session: SessionUser,
+  query: InvoiceCandidateQuery
+): Promise<InvoiceCandidateResult> {
+  const repo = getDataRepository();
+  const dataset = await repo.listAllTransactionsForScope(session);
+  return listInvoiceCandidatesFromDataset({ session, query, dataset });
 }
