@@ -13,22 +13,31 @@ import {
   subscribeReceiptSize,
   ThermalReceiptTemplate,
 } from "@/components/receipts/receipt-workspace";
+import {
+  A4InvoiceTemplate,
+  ThermalInvoiceTemplate,
+} from "@/components/receipts/invoice-templates";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
 import { IndeterminateProgressBar } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/client/api-client";
+import type { CombinedInvoicePayload } from "@/lib/domain/invoice";
 import type {
   ReceiptMode,
   ReceiptPaperSize,
   ReceiptPayload,
 } from "@/lib/domain/receipt";
+
+/** "invoice" = semua transaksi terpilih digabung jadi satu invoice per agen. */
+export type BulkPrintMode = ReceiptMode | "invoice";
 import { cn } from "@/lib/utils";
 
 export interface BulkReceiptWorkspaceProps {
   transactionIds: string[];
-  activeMode: ReceiptMode;
+  activeMode: BulkPrintMode;
   initialSizeFromUrl: ReceiptPaperSize | null;
   receipts: ReceiptPayload[];
+  invoices: CombinedInvoicePayload[];
   missingIds: string[];
   truncatedCount: number;
   maxReceipts: number;
@@ -43,6 +52,7 @@ export function BulkReceiptWorkspace({
   activeMode,
   initialSizeFromUrl,
   receipts,
+  invoices,
   missingIds,
   truncatedCount,
   maxReceipts,
@@ -63,8 +73,13 @@ export function BulkReceiptWorkspace({
     manualSize ?? initialSizeFromUrl ?? storedSize;
 
   const [showThermalLogo, setShowThermalLogo] = React.useState(
-    receipts[0]?.header.showThermalLogo ?? true
+    receipts[0]?.header.showThermalLogo ??
+      invoices[0]?.header.showThermalLogo ??
+      true
   );
+  const documentCount =
+    activeMode === "invoice" ? invoices.length : receipts.length;
+  const documentNoun = activeMode === "invoice" ? "invoice" : "struk";
 
   React.useEffect(() => {
     if (initialSizeFromUrl) {
@@ -72,7 +87,7 @@ export function BulkReceiptWorkspace({
     }
   }, [initialSizeFromUrl]);
 
-  function buildUrl(nextMode: ReceiptMode, nextSize: ReceiptPaperSize) {
+  function buildUrl(nextMode: BulkPrintMode, nextSize: ReceiptPaperSize) {
     const params = new URLSearchParams();
     params.set("ids", transactionIds.join(","));
     params.set("mode", nextMode);
@@ -87,7 +102,7 @@ export function BulkReceiptWorkspace({
     router.replace(buildUrl(activeMode, nextSize), { scroll: false });
   }
 
-  function handleSelectMode(nextMode: ReceiptMode) {
+  function handleSelectMode(nextMode: BulkPrintMode) {
     if (nextMode === activeMode || isModePending) return;
     startModeTransition(() => {
       router.push(buildUrl(nextMode, size));
@@ -111,10 +126,18 @@ export function BulkReceiptWorkspace({
         ? "@media print { @page { size: 80mm auto; margin: 0; } }"
         : "@media print { @page { size: A4; margin: 16mm; } }";
 
-  const modeOptions: { id: ReceiptMode; label: string }[] = [
+  const modeOptions: { id: BulkPrintMode; label: string }[] = [
+    { id: "invoice", label: "1 Invoice" },
     { id: "individual", label: "Per Transaksi" },
     { id: "group", label: "Per No. Pesanan" },
   ];
+
+  const modeDescription =
+    activeMode === "invoice"
+      ? "Semua transaksi terpilih digabung menjadi satu invoice berisi rincian per baris dan total. Jika transaksi berasal dari beberapa agen, dibuat satu invoice per agen."
+      : activeMode === "group"
+        ? "Transaksi dengan No. Pesanan yang sama digabung jadi satu struk (tiket + bonus). Transaksi tanpa No. Pesanan tetap dicetak satu per satu."
+        : "Setiap transaksi terpilih dicetak sebagai struk sendiri.";
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -124,14 +147,15 @@ export function BulkReceiptWorkspace({
         <div className="space-y-5 rounded-lg border border-surface-border bg-surface-card p-5 shadow-card lg:sticky lg:top-4">
           <div>
             <h2 className="text-base font-semibold text-neutral-900">
-              Cetak Banyak Struk
+              Cetak Transaksi Terpilih
             </h2>
             <p className="mt-0.5 text-xs text-neutral-500">
               {transactionIds.length} transaksi dipilih ·{" "}
               <strong className="font-semibold text-neutral-700">
-                {receipts.length} struk
+                {documentCount} {documentNoun}
               </strong>{" "}
-              akan dicetak. Setiap struk dimulai di halaman baru.
+              akan dicetak.
+              {documentCount > 1 && ` Setiap ${documentNoun} dimulai di halaman baru.`}
             </p>
           </div>
 
@@ -140,9 +164,9 @@ export function BulkReceiptWorkspace({
               Mode Cetak
             </span>
             <div
-              className="grid grid-cols-2 rounded-md border border-neutral-200 bg-neutral-25 p-1"
+              className="grid grid-cols-3 rounded-md border border-neutral-200 bg-neutral-25 p-1"
               role="group"
-              aria-label="Pilih mode struk"
+              aria-label="Pilih mode cetak"
             >
               {modeOptions.map((opt) => (
                 <button
@@ -151,7 +175,7 @@ export function BulkReceiptWorkspace({
                   disabled={isModePending}
                   onClick={() => handleSelectMode(opt.id)}
                   className={cn(
-                    "inline-flex h-9 items-center justify-center gap-1.5 rounded-sm text-sm font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-60",
+                    "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-sm px-1 py-1 text-center text-xs font-medium leading-tight transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-60",
                     activeMode === opt.id
                       ? "bg-neutral-0 font-semibold text-primary-700 shadow-2xs"
                       : "text-neutral-700 hover:text-neutral-900"
@@ -167,11 +191,7 @@ export function BulkReceiptWorkspace({
                 </button>
               ))}
             </div>
-            <p className="text-xs text-neutral-500">
-              {activeMode === "group"
-                ? "Transaksi dengan No. Pesanan yang sama digabung jadi satu struk (tiket + bonus). Transaksi tanpa No. Pesanan tetap dicetak satu per satu."
-                : "Setiap transaksi terpilih dicetak sebagai struk sendiri."}
-            </p>
+            <p className="text-xs text-neutral-500">{modeDescription}</p>
           </div>
 
           <div className="space-y-2">
@@ -238,12 +258,13 @@ export function BulkReceiptWorkspace({
               type="button"
               variant="primary"
               size="lg"
-              disabled={isModePending || receipts.length === 0}
+              disabled={isModePending || documentCount === 0}
               onClick={handlePrint}
               className="w-full"
             >
               <Printer className="h-4 w-4" aria-hidden="true" />
-              Cetak {receipts.length} Struk
+              Cetak {documentCount}{" "}
+              {documentNoun === "invoice" ? "Invoice" : "Struk"}
             </Button>
 
             <Button asChild variant="ghost" className="w-full">
@@ -274,7 +295,28 @@ export function BulkReceiptWorkspace({
             isModePending && "opacity-60"
           )}
         >
-          {receipts.map((receipt, idx) => (
+          {activeMode === "invoice" &&
+            invoices.map((invoice, idx) => (
+              <div
+                key={`invoice-${invoice.agentId}`}
+                className={cn(
+                  "flex w-full justify-center print:block",
+                  idx < invoices.length - 1 && "print:break-after-page"
+                )}
+              >
+                {size === "a4" ? (
+                  <A4InvoiceTemplate invoice={invoice} />
+                ) : (
+                  <ThermalInvoiceTemplate
+                    invoice={invoice}
+                    paperWidth={size}
+                    showLogo={showThermalLogo}
+                  />
+                )}
+              </div>
+            ))}
+          {activeMode !== "invoice" &&
+            receipts.map((receipt, idx) => (
             <div
               key={`${idx}-${receipt.mode}-${receipt.meta.transactionId}`}
               className={cn(

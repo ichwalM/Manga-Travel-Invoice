@@ -235,7 +235,7 @@ export function TransactionsClient({
 
   const bulkReceiptHref = `/transactions/receipts?${new URLSearchParams({
     ids: selectedIds.join(","),
-    mode: "individual",
+    mode: "invoice",
   }).toString()}`;
 
   return (
@@ -466,7 +466,7 @@ export function TransactionsClient({
                 <Button asChild variant="primary" size="sm">
                   <Link href={bulkReceiptHref}>
                     <Printer className="h-4 w-4" aria-hidden="true" />
-                    Cetak {selectedIds.length} Struk
+                    Cetak {selectedIds.length} Transaksi
                   </Link>
                 </Button>
               </div>

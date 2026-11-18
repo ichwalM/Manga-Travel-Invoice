@@ -76,7 +76,7 @@ const recordBulkPrintSchema = z.object({
     .array(z.string().trim().min(1))
     .min(1, "Pilih minimal satu transaksi.")
     .max(MAX_BULK_RECEIPTS, `Maksimal ${MAX_BULK_RECEIPTS} transaksi sekali cetak.`),
-  mode: z.enum(["individual", "group"]).default("individual"),
+  mode: z.enum(["individual", "group", "invoice"]).default("individual"),
   size: z.enum(["58", "80", "a4"]).optional(),
 });
 
@@ -113,10 +113,11 @@ export async function POST(request: NextRequest) {
         return zodErrorToApiResponse(bulk.error, "Parameter cetak tidak valid.");
       }
 
+      // Mode invoice mencakup transaksi yang sama dengan mode per transaksi
       const { coveredIds } = await getBulkReceiptsForSession({
         session: auth.session,
         transactionIds: bulk.data.transactionIds,
-        mode: bulk.data.mode,
+        mode: bulk.data.mode === "group" ? "group" : "individual",
         printedAt: new Date(),
       });
       if (coveredIds.length === 0) {

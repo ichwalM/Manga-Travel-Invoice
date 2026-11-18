@@ -8,6 +8,10 @@ import { getDataRepository } from "@/lib/db/repository";
 import type { AppAgentRecord, SessionUser } from "@/lib/db/types";
 import { getTransactionCaseMeta } from "@/lib/domain/cases";
 import {
+  buildCombinedInvoices,
+  type CombinedInvoicePayload,
+} from "@/lib/domain/invoice";
+import {
   buildGroupReceipt,
   buildIndividualReceipt,
   type BuildReceiptResult,
@@ -448,6 +452,55 @@ export function buildBulkReceiptsFromDataset(params: {
   return { receipts, missingIds, coveredIds };
 }
 
+export interface CombinedInvoiceResult {
+  invoices: CombinedInvoicePayload[];
+  missingIds: string[];
+  coveredIds: string[];
+}
+
+/**
+ * Menggabungkan transaksi terpilih menjadi invoice (satu per agen) berisi
+ * rincian per baris + total. Transaksi di luar akses pengguna dilaporkan
+ * sebagai missingIds.
+ */
+export function buildCombinedInvoicesFromDataset(params: {
+  session: SessionUser;
+  transactionIds: readonly string[];
+  printedAt: Date;
+  settings: ReceiptBusinessSettings;
+  dataset: readonly ReceiptTransactionRecord[];
+}): CombinedInvoiceResult {
+  const scoped = filterDatasetForSession(params.session, params.dataset);
+  const byId = new Map(scoped.map((tx) => [tx.id, tx]));
+
+  const picked: ReceiptTransactionRecord[] = [];
+  const missingIds: string[] = [];
+  const coveredIds: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawId of params.transactionIds) {
+    const id = rawId.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const tx = byId.get(id);
+    if (tx) {
+      picked.push(tx);
+      coveredIds.push(id);
+    } else {
+      missingIds.push(id);
+    }
+  }
+
+  const invoices = buildCombinedInvoices({
+    transactions: picked,
+    settings: params.settings,
+    printedBy: params.session.name,
+    printedAt: params.printedAt,
+  });
+
+  return { invoices, missingIds, coveredIds };
+}
+
 // ============================================================================
 // Fungsi Live Async yang membaca dari Repository Aktif (MySQL Prisma / Local Store)
 // ============================================================================
@@ -532,6 +585,26 @@ export async function getBulkReceiptsForSession(params: {
     session: params.session,
     transactionIds: params.transactionIds.slice(0, MAX_BULK_RECEIPTS),
     mode: params.mode,
+    printedAt: params.printedAt,
+    settings,
+    dataset,
+  });
+}
+
+export async function getCombinedInvoicesForSession(params: {
+  session: SessionUser;
+  transactionIds: readonly string[];
+  printedAt: Date;
+}): Promise<CombinedInvoiceResult> {
+  const repo = getDataRepository();
+  const [dataset, settings] = await Promise.all([
+    repo.listAllTransactionsForScope(params.session),
+    repo.getSettings(),
+  ]);
+
+  return buildCombinedInvoicesFromDataset({
+    session: params.session,
+    transactionIds: params.transactionIds.slice(0, MAX_BULK_RECEIPTS),
     printedAt: params.printedAt,
     settings,
     dataset,

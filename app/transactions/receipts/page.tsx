@@ -3,19 +3,24 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppShellSkeleton } from "@/components/layout/app-shell-skeleton";
-import { BulkReceiptWorkspace } from "@/components/receipts/bulk-receipt-workspace";
+import {
+  BulkReceiptWorkspace,
+  type BulkPrintMode,
+} from "@/components/receipts/bulk-receipt-workspace";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ReceiptPageSkeleton } from "@/components/ui/skeleton";
 import { requireSessionUser } from "@/lib/auth/guards";
-import type { ReceiptMode, ReceiptPaperSize } from "@/lib/domain/receipt";
+import type { ReceiptPaperSize } from "@/lib/domain/receipt";
 import {
   getBulkReceiptsForSession,
+  getCombinedInvoicesForSession,
   MAX_BULK_RECEIPTS,
 } from "@/lib/services/transaction-service";
 
 /**
- * Halaman cetak massal struk: /transactions/receipts?ids=1,2,3&mode=individual&size=80
+ * Halaman cetak transaksi terpilih: /transactions/receipts?ids=1,2,3&mode=invoice&size=80
+ * mode: invoice (default, 1 invoice gabungan) | individual (per transaksi) | group (per No. Pesanan)
  */
 export default function BulkReceiptPage(
   props: PageProps<"/transactions/receipts">
@@ -23,7 +28,7 @@ export default function BulkReceiptPage(
   return (
     <Suspense
       fallback={
-        <AppShellSkeleton pageTitle="Cetak Banyak Struk">
+        <AppShellSkeleton pageTitle="Cetak Transaksi Terpilih">
           <ReceiptPageSkeleton />
         </AppShellSkeleton>
       }
@@ -64,7 +69,8 @@ async function BulkReceiptDynamicContent({
   const truncatedCount = allIds.length - transactionIds.length;
 
   const rawMode = firstParam(rawSearchParams.mode).toLowerCase();
-  const mode: ReceiptMode = rawMode === "group" ? "group" : "individual";
+  const mode: BulkPrintMode =
+    rawMode === "group" || rawMode === "individual" ? rawMode : "invoice";
 
   const rawSize = firstParam(rawSearchParams.size).toLowerCase();
   const initialSizeFromUrl: ReceiptPaperSize | null =
@@ -75,7 +81,7 @@ async function BulkReceiptDynamicContent({
       <Link href="/transactions" className="hover:text-primary-600">
         Transaksi
       </Link>{" "}
-      / <span>Cetak Banyak Struk</span>
+      / <span>Cetak Transaksi Terpilih</span>
     </nav>
   );
 
@@ -83,7 +89,7 @@ async function BulkReceiptDynamicContent({
     return (
       <AppShell
         session={session}
-        pageTitle="Cetak Banyak Struk"
+        pageTitle="Cetak Transaksi Terpilih"
         breadcrumb={breadcrumb}
       >
         <EmptyState
@@ -99,20 +105,38 @@ async function BulkReceiptDynamicContent({
     );
   }
 
-  const result = await getBulkReceiptsForSession({
-    session,
-    transactionIds,
-    mode,
-    printedAt: new Date(),
-  });
+  const printedAt = new Date();
+  const invoiceResult =
+    mode === "invoice"
+      ? await getCombinedInvoicesForSession({
+          session,
+          transactionIds,
+          printedAt,
+        })
+      : null;
+  const receiptResult =
+    mode === "invoice"
+      ? null
+      : await getBulkReceiptsForSession({
+          session,
+          transactionIds,
+          mode,
+          printedAt,
+        });
+
+  const receipts = receiptResult?.receipts ?? [];
+  const invoices = invoiceResult?.invoices ?? [];
+  const missingIds =
+    invoiceResult?.missingIds ?? receiptResult?.missingIds ?? [];
+  const documentCount = mode === "invoice" ? invoices.length : receipts.length;
 
   return (
     <AppShell
       session={session}
-      pageTitle="Cetak Banyak Struk"
+      pageTitle="Cetak Transaksi Terpilih"
       breadcrumb={breadcrumb}
     >
-      {result.receipts.length === 0 ? (
+      {documentCount === 0 ? (
         <EmptyState
           variant="no_results"
           title="Transaksi yang dipilih tidak ditemukan."
@@ -127,8 +151,9 @@ async function BulkReceiptDynamicContent({
           transactionIds={transactionIds}
           activeMode={mode}
           initialSizeFromUrl={initialSizeFromUrl}
-          receipts={result.receipts}
-          missingIds={result.missingIds}
+          receipts={receipts}
+          invoices={invoices}
+          missingIds={missingIds}
           truncatedCount={truncatedCount}
           maxReceipts={MAX_BULK_RECEIPTS}
         />

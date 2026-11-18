@@ -150,3 +150,51 @@ describe("Cetak massal struk (buildBulkReceiptsFromDataset)", () => {
     expect(res.missingIds).toEqual(["50", "999"]);
   });
 });
+
+import { buildCombinedInvoicesFromDataset } from "@/lib/services/transaction-service";
+
+describe("Invoice gabungan (buildCombinedInvoicesFromDataset)", () => {
+  it("menggabungkan transaksi terpilih menjadi 1 invoice dengan rincian kronologis dan total", () => {
+    const res = buildCombinedInvoicesFromDataset({
+      session: admin,
+      transactionIds: ["29", "27", "28"],
+      printedAt,
+      settings,
+      dataset,
+    });
+
+    expect(res.missingIds).toEqual([]);
+    expect(res.invoices).toHaveLength(1);
+    const inv = res.invoices[0];
+    expect(inv.agentCode).toBe("JKT-37287");
+    expect(inv.items.map((i) => i.id)).toEqual(["27", "28", "29"]);
+    expect(inv.totalDebit).toBe("1850000");
+    expect(inv.totalCredit).toBe("2025000");
+    expect(inv.netTotal).toBe("-175000");
+  });
+
+  it("transaksi dari agen berbeda dipisah menjadi invoice per agen; agen tidak bisa melihat milik agen lain", () => {
+    const adminRes = buildCombinedInvoicesFromDataset({
+      session: admin,
+      transactionIds: ["28", "50", "29"],
+      printedAt,
+      settings,
+      dataset,
+    });
+    expect(adminRes.invoices.map((i) => i.agentCode)).toEqual([
+      "JKT-37287",
+      "MKS-20819",
+    ]);
+    expect(adminRes.invoices[0].netTotal).toBe("1825000");
+
+    const agentRes = buildCombinedInvoicesFromDataset({
+      session: agentEman,
+      transactionIds: ["28", "50"],
+      printedAt,
+      settings,
+      dataset,
+    });
+    expect(agentRes.invoices).toHaveLength(1);
+    expect(agentRes.missingIds).toEqual(["50"]);
+  });
+});
